@@ -149,15 +149,25 @@ function applyUnified(): void {
     align: draft.value.align,
     trackRatio: draft.value.trackRatio
   }
-  const target = listProjects().find((p) => selected.value.includes(p.id))
-  if (!target) return
-  target.layout.settings.fontId = unify.fontId
-  target.layout.settings.weight = unify.weight
-  target.layout.settings.baseSizeMm = unify.baseSizeMm
-  target.layout.settings.align = unify.align
-  target.layout.settings.trackRatio = unify.trackRatio
-  target.layout.items = textToItems(target.layout.items.map((i) => i.char).join(''), target.layout.items, target.layout.settings, unify.baseSizeMm)
-  ensureFont(target.layout.settings.fontId, target.layout.settings.weight).catch(() => undefined)
+  // 对所有勾选的项目逐个生效，并写回本机存储（刷新后仍是统一后的值）
+  const targets = listProjects().filter((p) => selected.value.includes(p.id))
+  if (targets.length === 0) return
+  for (const target of targets) {
+    target.layout.settings.fontId = unify.fontId
+    target.layout.settings.weight = unify.weight
+    target.layout.settings.baseSizeMm = unify.baseSizeMm
+    target.layout.settings.align = unify.align
+    target.layout.settings.trackRatio = unify.trackRatio
+    // 按原有分行重建文本，避免多行被并成一行
+    const lines: string[] = []
+    for (const it of target.layout.items) {
+      while (lines.length <= it.line) lines.push('')
+      lines[it.line] += it.char
+    }
+    target.layout.items = textToItems(lines.join('\n'), target.layout.items, target.layout.settings, unify.baseSizeMm)
+    saveProject(target)
+  }
+  ensureFont(unify.fontId, unify.weight).catch(() => undefined)
   refresh()
   batchTick.value++
 }

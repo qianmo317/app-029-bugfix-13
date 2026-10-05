@@ -37,7 +37,15 @@ function writeJson(key: string, value: unknown): void {
 }
 
 export function listProjects(): Project[] {
-  return readJson<Project[]>(KEY_PROJECTS, [])
+  const list = readJson<Project[]>(KEY_PROJECTS, [])
+  // 同一个门头只留一条（保留 updatedAt 最新者），并按最近改动排在最前
+  const byId = new Map<string, Project>()
+  for (const p of list) {
+    if (!p || typeof p.id !== 'string') continue
+    const old = byId.get(p.id)
+    if (!old || (p.updatedAt ?? 0) > (old.updatedAt ?? 0)) byId.set(p.id, p)
+  }
+  return [...byId.values()].sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0))
 }
 
 export function getProject(id: string): Project | null {
@@ -45,7 +53,8 @@ export function getProject(id: string): Project | null {
 }
 
 export function saveProject(p: Project): void {
-  const list = listProjects()
+  // 先按 id 去掉旧条目再放到最前：同一门头在列表里始终只有一条
+  const list = listProjects().filter((x) => x.id !== p.id)
   list.unshift({ ...p, updatedAt: Date.now() })
   writeJson(KEY_PROJECTS, list)
 }
@@ -76,12 +85,35 @@ export function newId(): string {
 export function createProject(name: string, panel?: { wMm?: number; hMm?: number; frameMm?: number }): Project {
   const p = defaultProject(newId(), panel)
   p.name = name
+  // 新建门头采用「本地字库」页设置的当前默认字体与字重
+  const prefs = loadPrefs()
+  p.layout.settings.fontId = prefs.defaultFontId
+  p.layout.settings.weight = prefs.defaultWeight
   saveProject(p)
   return p
 }
 
+function isPlainObject(v: unknown): v is Record<string, unknown> {
+  return typeof v === 'object' && v !== null && !Array.isArray(v)
+}
+
+/**
+ * 按段合并预设：存档里有的段盖上去、没有的段拿出厂值。
+ * 对象段逐字段递归合并（旧存档缺字段时回落出厂值，如 psu.tiers / pricePerWattCents）；
+ * 数组段（板材/模组/配件等）有存档则整段采用存档，否则用出厂值。
+ */
 function mergePreset(base: Preset, patch: Partial<Preset>): Preset {
-  return { ...base, ...(patch as Preset) }
+  const merge = (b: unknown, s: unknown): unknown => {
+    if (isPlainObject(b) && isPlainObject(s)) {
+      const out: Record<string, unknown> = { ...b }
+      for (const k of Object.keys(s)) {
+        out[k] = k in b ? merge(b[k], s[k]) : s[k]
+      }
+      return out
+    }
+    return s === undefined ? b : s
+  }
+  return merge(base, patch) as Preset
 }
 
 export function defaultPresetDeep(): Preset {
@@ -90,7 +122,7 @@ export function defaultPresetDeep(): Preset {
 
 export function loadPreset(): Preset {
   const saved = readJson<Partial<Preset> | null>(KEY_PRESET, null)
-  if (!saved) return defaultPresetDeep()
+  if (!saved || typeof saved !== 'object') return defaultPresetDeep()
   return mergePreset(defaultPresetDeep(), saved)
 }
 
