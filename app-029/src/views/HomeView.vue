@@ -6,14 +6,14 @@ import { computeLayout, mountingLabel, textToItems } from '../logic/layout'
 import { buildBom } from '../logic/materials'
 import { compareMaterials } from '../logic/materials'
 import { bomGroupLabel } from '../logic/quote'
-import { createProject, deleteProject, duplicateProject, listProjects, loadPreset, loadPrefs, saveProject } from '../logic/store'
+import { applyUnifiedLayout, createProject, defaultFontPref, deleteProject, duplicateProject, listProjects, loadPreset, saveProject } from '../logic/store'
 import type { Align, Mounting, Project } from '../logic/types'
 import { yuan } from '../logic/materials'
 
 const router = useRouter()
 const projects = ref<Project[]>([])
 const preset = ref(loadPreset())
-const prefs = loadPrefs()
+const fontPref = defaultFontPref()
 const error = ref('')
 const batchTick = ref(0)
 const selected = ref<string[]>([])
@@ -25,8 +25,8 @@ const draft = ref({
   frameMm: 60,
   mounting: 'board' as Mounting,
   text: '广告招牌制作',
-  fontId: prefs.defaultFontId,
-  weight: prefs.defaultWeight,
+  fontId: fontPref.fontId,
+  weight: fontPref.weight,
   baseSizeMm: 300,
   align: 'center' as Align,
   trackRatio: 0.1
@@ -142,22 +142,16 @@ const batchTotal = computed(() => {
 })
 
 function applyUnified(): void {
-  const unify = {
+  // 对所有勾选的项目逐个生效并写回本机存储（刷新后仍是统一后的值）
+  const n = applyUnifiedLayout(selected.value, {
     fontId: draft.value.fontId,
     weight: draft.value.weight,
     baseSizeMm: draft.value.baseSizeMm,
     align: draft.value.align,
     trackRatio: draft.value.trackRatio
-  }
-  const target = listProjects().find((p) => selected.value.includes(p.id))
-  if (!target) return
-  target.layout.settings.fontId = unify.fontId
-  target.layout.settings.weight = unify.weight
-  target.layout.settings.baseSizeMm = unify.baseSizeMm
-  target.layout.settings.align = unify.align
-  target.layout.settings.trackRatio = unify.trackRatio
-  target.layout.items = textToItems(target.layout.items.map((i) => i.char).join(''), target.layout.items, target.layout.settings, unify.baseSizeMm)
-  ensureFont(target.layout.settings.fontId, target.layout.settings.weight).catch(() => undefined)
+  })
+  if (n === 0) return
+  ensureFont(draft.value.fontId, draft.value.weight).catch(() => undefined)
   refresh()
   batchTick.value++
 }
